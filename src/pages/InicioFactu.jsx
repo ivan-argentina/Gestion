@@ -16,7 +16,6 @@ import FrmFamilias from "./AbmFamilias";
 import Factura from "./Factura";
 import Facturas from "./Facturas";
 import ResumenClientes from "./ResumenClientes";
-import PagosClientes from "./PagosClientes";
 import { useEffect, useState } from "react";
 
 import ResumenCliente from "./ResumenClientes";

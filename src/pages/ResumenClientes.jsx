@@ -17,13 +17,12 @@ import {
   TableBody,
   Table,
   Dialog,
+  MenuItem,
 } from "@mui/material";
+
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import SearchIcon from "@mui/icons-material/Search";
 import ClearIcon from "@mui/icons-material/Clear";
-import PersonIcon from "@mui/icons-material/Person";
-import ReceiptLongIcon from "@mui/icons-material/ReceiptLong";
-import PaidIcon from "@mui/icons-material/Paid";
 import { DataGrid } from "@mui/x-data-grid";
 import { supabase } from "../hook/supabaseClient";
 import CloseIcon from "@mui/icons-material/Close";
@@ -43,6 +42,13 @@ export default function ResumenClientes() {
   const [detalleFactura, setDetalleFactura] = useState([]);
   const [facturaSeleccionada, setFacturaSeleccionada] = useState(null);
   const [openDetalle, setOpenDetalle] = useState(false);
+  const [openPago, setOpenPago] = useState(false);
+  const [facturasPendientes, setFacturasPendientes] = useState([]);
+  const [importeRecibido, setImporteRecibido] = useState("");
+  const [formaPago, setFormaPago] = useState("Efectivo");
+  const [observaciones, setObservaciones] = useState("");
+  const [clienteId, setClienteId] = useState("");
+  const [guardandoPago, setGuardandoPago] = useState(false);
   const facturaPdfRef = useRef();
   const [paginationModel, setPaginationModel] = useState({
     page: 0,
@@ -52,6 +58,168 @@ export default function ResumenClientes() {
   useEffect(() => {
     cargarClientes();
   }, []);
+
+  const cargarFacturasPendientes = async (clienteId) => {
+    const { data, error } = await supabase
+      .from("facturas")
+      .select("id, fecha, numero, tipo_comprobante, total, saldo, estado_pago")
+      .eq("idcliente", clienteId)
+      .gt("saldo", 0)
+      .order("fecha", { ascending: true });
+
+    if (error) {
+      console.log("Error al cargar facturas pendientes", error);
+      return;
+    }
+    const facturasConPago = (data || []).map((f) => ({
+      ...f,
+      pagar: 0,
+    }));
+    setFacturasPendientes(facturasConPago);
+  };
+
+  const aplicarPagoAutomatico = () => {
+    let restante = Number(importeRecibido || 0);
+
+    const actualizadas = facturasPendientes.map((factura) => {
+      const saldo = Number(factura.saldo || 0);
+
+      if (restante <= 0) {
+        return { ...factura, pagar: 0 };
+      }
+
+      const aplicado = Math.min(restante, saldo);
+      restante -= aplicado;
+
+      return {
+        ...factura,
+        pagar: aplicado,
+      };
+    });
+
+    setFacturasPendientes(actualizadas);
+  };
+
+  const manejarPagoFactura = (idfactura, valor) => {
+    const numero = Number(valor || 0);
+
+    setFacturasPendientes((prev) =>
+      prev.map((f) =>
+        f.id === idfactura
+          ? {
+              ...f,
+              pagar: Math.min(Math.max(numero, 0), Number(f.saldo || 0)),
+            }
+          : f,
+      ),
+    );
+  };
+  const totalAplicado = facturasPendientes.reduce(
+    (acc, item) => acc + Number(item.pagar || 0),
+    0,
+  );
+
+  const guardarPago = async () => {
+    if (!clienteId) {
+      setError("Tenés que seleccionar un cliente.");
+      return;
+    }
+
+    const recibido = Number(importeRecibido || 0);
+
+    if (recibido <= 0) {
+      setError("Ingresá un importe recibido válido.");
+      return;
+    }
+
+    const detallesAplicados = facturasPendientes.filter(
+      (f) => Number(f.pagar || 0) > 0,
+    );
+
+    if (detallesAplicados.length === 0) {
+      setError("No hay importes aplicados a facturas.");
+      return;
+    }
+
+    if (totalAplicado > recibido) {
+      setError("El total aplicado no puede ser mayor al importe recibido.");
+      return;
+    }
+
+    setGuardandoPago(true);
+    setError("");
+
+    try {
+      const { data: pagoCreado, error: errorPago } = await supabase
+        .from("Pagos_Clientes")
+        .insert([
+          {
+            fecha: new Date().toISOString().split("T")[0],
+            idcliente: clienteId,
+            importe: recibido,
+            forma_pago: formaPago,
+            observaciones: observaciones || "",
+          },
+        ])
+        .select()
+        .single();
+
+      if (errorPago) throw errorPago;
+
+      const detalleInsert = detallesAplicados.map((item) => ({
+        idpago: pagoCreado.id,
+        idfactura: item.id,
+        importe_aplicado: Number(item.pagar || 0),
+      }));
+
+      const { error: errorDetalle } = await supabase
+        .from("detal_pagos_clientes")
+        .insert(detalleInsert);
+
+      if (errorDetalle) throw errorDetalle;
+
+      for (const item of detallesAplicados) {
+        const nuevoSaldo = Number(item.saldo || 0) - Number(item.pagar || 0);
+
+        const { error: errorFactura } = await supabase
+          .from("facturas")
+          .update({
+            saldo: nuevoSaldo,
+            estado_pago: nuevoSaldo <= 0 ? "pagada" : "pendiente",
+          })
+          .eq("id", item.id);
+
+        if (errorFactura) throw errorFactura;
+      }
+
+      setOpenPago(false);
+      setImporteRecibido("");
+      setFormaPago("Efectivo");
+      setObservaciones("");
+      setFacturasPendientes([]);
+
+      await buscarResumen();
+
+      alert("Pago guardado correctamente");
+    } catch (error) {
+      console.log("Error al guardar pago:", error);
+      setError("Error al guardar el pago.");
+    } finally {
+      setGuardandoPago(false);
+    }
+  };
+
+  useEffect(() => {
+    if (openPago && clienteId) {
+      cargarFacturasPendientes(clienteId);
+    }
+  }, [openPago, clienteId]);
+
+  useEffect(() => {
+    if (clienteId) {
+      cargarFacturasPendientes(clienteId);
+    }
+  }, [clienteId]);
 
   const imprimirFactura = async () => {
     await generarpdfU(facturaPdfRef);
@@ -145,13 +313,16 @@ export default function ResumenClientes() {
 
   const limpiarFiltros = () => {
     setClienteSeleccionado(null);
+    setClienteId("");
     setFechaDesde("");
     setFechaHasta("");
     setFacturas([]);
+    setFacturasPendientes([]);
+    setImporteRecibido("");
+    setFormaPago("Efectivo");
+    setObservaciones("");
     setError("");
   };
-
-  const cantidadFacturas = facturas.length;
 
   const totalFacturado = useMemo(() => {
     return facturas.reduce((acc, item) => acc + Number(item.total || 0), 0);
@@ -260,7 +431,10 @@ export default function ResumenClientes() {
               options={clientes}
               loading={loadingClientes}
               value={clienteSeleccionado}
-              onChange={(event, newValue) => setClienteSeleccionado(newValue)}
+              onChange={(event, newValue) => {
+                setClienteSeleccionado(newValue || null);
+                setClienteId(newValue?.id || "");
+              }}
               getOptionLabel={(option) => option?.nombre || ""}
               isOptionEqualToValue={(option, value) => option.id === value.id}
               renderInput={(params) => (
@@ -306,6 +480,22 @@ export default function ResumenClientes() {
                 }}
               >
                 Buscar
+              </Button>
+              <Button
+                variant="contained"
+                color="success"
+                onClick={() => setOpenPago(true)}
+                disabled={!clienteId}
+                fullWidth
+                startIcon={<SearchIcon />}
+                sx={{
+                  height: 56,
+                  borderRadius: 2,
+                  textTransform: "none",
+                  fontWeight: "bold",
+                }}
+              >
+                Pago
               </Button>
 
               <Button
@@ -437,6 +627,156 @@ export default function ResumenClientes() {
           puntoVenta={1}
         />
       </div>
+      <Dialog
+        open={openPago}
+        onClose={() => setOpenPago(false)}
+        maxWidth="lg"
+        fullWidth
+      >
+        <DialogTitle>Registrar Pago</DialogTitle>
+
+        <DialogContent>
+          <Box sx={{ mt: 1 }}>
+            <Grid container spacing={2}>
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  label="Importe recibido"
+                  type="number"
+                  fullWidth
+                  size="small"
+                  value={importeRecibido}
+                  onChange={(e) => setImporteRecibido(e.target.value)}
+                />
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 4 }}>
+                <TextField
+                  select
+                  label="Forma de pago"
+                  fullWidth
+                  size="small"
+                  value={formaPago}
+                  onChange={(e) => setFormaPago(e.target.value)}
+                >
+                  <MenuItem value="Efectivo">Efectivo</MenuItem>
+                  <MenuItem value="Transferencia">Transferencia</MenuItem>
+                  <MenuItem value="Tarjeta">Tarjeta</MenuItem>
+                  <MenuItem value="Cheque">Cheque</MenuItem>
+                </TextField>
+              </Grid>
+
+              <Grid size={{ xs: 12, md: 4 }}>
+                <Button
+                  variant="outlined"
+                  fullWidth
+                  sx={{ height: 40 }}
+                  onClick={aplicarPagoAutomatico}
+                >
+                  Aplicar automático
+                </Button>
+              </Grid>
+
+              <Grid size={{ xs: 12 }}>
+                <TextField
+                  label="Observaciones"
+                  fullWidth
+                  size="small"
+                  multiline
+                  minRows={2}
+                  value={observaciones}
+                  onChange={(e) => setObservaciones(e.target.value)}
+                />
+              </Grid>
+            </Grid>
+
+            <Box sx={{ mt: 2, mb: 2 }}>
+              <Typography variant="body1">
+                <strong>Cliente:</strong> {clienteSeleccionado?.nombre || "-"}
+              </Typography>
+
+              <Typography variant="body1">
+                <strong>Total aplicado:</strong> ${" "}
+                {Number(totalAplicado).toLocaleString("es-AR", {
+                  minimumFractionDigits: 2,
+                  maximumFractionDigits: 2,
+                })}
+              </Typography>
+            </Box>
+
+            <Box sx={{ height: 350 }}>
+              <DataGrid
+                rows={facturasPendientes}
+                getRowId={(row) => row.id}
+                disableRowSelectionOnClick
+                columns={[
+                  {
+                    field: "fecha",
+                    headerName: "Fecha",
+                    width: 110,
+                  },
+                  {
+                    field: "numero",
+                    headerName: "N°",
+                    width: 100,
+                    valueFormatter: (value) =>
+                      String(value || 0).padStart(4, "0"),
+                  },
+                  {
+                    field: "tipo_comprobante",
+                    headerName: "Tipo",
+                    width: 100,
+                  },
+                  {
+                    field: "saldo",
+                    headerName: "Saldo",
+                    width: 130,
+                    valueFormatter: (value) =>
+                      `$ ${Number(value || 0).toLocaleString("es-AR", {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 2,
+                      })}`,
+                  },
+                  {
+                    field: "pagar",
+                    headerName: "A pagar",
+                    width: 140,
+                    renderCell: (params) => (
+                      <TextField
+                        size="small"
+                        type="number"
+                        value={params.row.pagar}
+                        onChange={(e) =>
+                          manejarPagoFactura(params.row.id, e.target.value)
+                        }
+                        inputProps={{
+                          min: 0,
+                          max: params.row.saldo,
+                          step: "0.01",
+                        }}
+                        sx={{ width: "100%" }}
+                      />
+                    ),
+                  },
+                ]}
+              />
+            </Box>
+
+            <Box sx={{ display: "flex", gap: 2, mt: 2 }}>
+              <Button
+                variant="contained"
+                onClick={guardarPago}
+                disabled={guardandoPago}
+              >
+                {guardandoPago ? "Guardando..." : "Guardar pago"}
+              </Button>
+
+              <Button variant="outlined" onClick={() => setOpenPago(false)}>
+                Cancelar
+              </Button>
+            </Box>
+          </Box>
+        </DialogContent>
+      </Dialog>
     </Box>
   );
 }
