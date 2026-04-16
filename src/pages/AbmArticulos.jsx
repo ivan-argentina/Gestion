@@ -141,14 +141,21 @@ export default function AbmArticulos() {
   };
 
   const cargarArticulos = async () => {
-    const { data, error } = await supabase.from("articulos").select(`
+    const { data, error } = await supabase
+      .from("articulos")
+      .select(
+        `
       id,
-      nombre,
+      codigo,
+      descripcion,
       precio,
+      stock,
       idfamilia,
-      foto_url,
+      imagen_url,
       familias(nombre)
-    `);
+    `,
+      )
+      .order("descripcion", { ascending: true });
 
     if (error) {
       console.log(error);
@@ -236,7 +243,7 @@ export default function AbmArticulos() {
     }
 
     if (editandoId) {
-      console.log("fotoPath a guardar:", fotoPath);
+      //console.log("fotoPath a guardar:", fotoPath);
       const { error } = await supabase
         .from("articulos")
         .update({
@@ -290,10 +297,10 @@ export default function AbmArticulos() {
       headerName: "Foto",
       width: 100,
       renderCell: (params) => {
-        console.log(params.row);
-        console.log(params.row.foto_url);
+        // console.log(params.row);
+        //  console.log(params.row.foto_url);
         const url = obtenerUrlImagen(params.row.foto_url);
-        console.log(url);
+        //  console.log(url);
         return params.row.foto_url ? (
           <img
             src={url}
@@ -409,15 +416,8 @@ export default function AbmArticulos() {
           onClose={() => setOpen(false)}
         />
 
-        <Box
-          component="form"
-          onSubmit={guardarArticulos}
-          sx={{ mb: 2 }}
-        >
-          <Grid
-            container
-            spacing={1}
-          >
+        <Box component="form" onSubmit={guardarArticulos} sx={{ mb: 2 }}>
+          <Grid container spacing={1}>
             <Grid size={{ xs: 12, sm: 6 }}>
               <TextField
                 label="Artículo"
@@ -438,10 +438,7 @@ export default function AbmArticulos() {
                 onChange={(e) => setFamiliaId(e.target.value)}
               >
                 {familias.map((f) => (
-                  <MenuItem
-                    key={f.id}
-                    value={f.id}
-                  >
+                  <MenuItem key={f.id} value={f.id}>
                     {f.nombre}
                   </MenuItem>
                 ))}
@@ -449,11 +446,7 @@ export default function AbmArticulos() {
             </Grid>
 
             <Grid size={{ xs: 12, sm: 6 }}>
-              <InputPrecio
-                value={precio}
-                onChange={setPrecio}
-                size="small"
-              />
+              <InputPrecio value={precio} onChange={setPrecio} size="small" />
             </Grid>
 
             <Grid size={{ xs: 12, sm: 6 }}>
@@ -567,10 +560,7 @@ export default function AbmArticulos() {
           </Grid>
 
           {error && (
-            <Typography
-              color="error"
-              sx={{ mt: 1, fontSize: 13 }}
-            >
+            <Typography color="error" sx={{ mt: 1, fontSize: 13 }}>
               {error}
             </Typography>
           )}

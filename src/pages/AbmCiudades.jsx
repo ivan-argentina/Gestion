@@ -1,107 +1,161 @@
-import { Box, Button, Container, IconButton, List, ListItem, ListItemText, TextField, Typography } from "@mui/material";
-import DeleteIcon from "@mui/icons-material/Delete"
-import Notificaciones from "./Notificaciones";
 import { useEffect, useState } from "react";
-import { supabase } from "../hook/supabaseClient"
+import { supabase } from "../hook/supabaseClient";
+import {
+  Box,
+  Paper,
+  Typography,
+  TextField,
+  Button,
+  IconButton,
+  List,
+  ListItem,
+  ListItemText,
+  Divider,
+} from "@mui/material";
+import DeleteIcon from "@mui/icons-material/Delete";
+import LocationCityIcon from "@mui/icons-material/LocationCity";
 
-export default function AbmCiudades(){
-    const [ciudad, setCiudad]= useState('')
-    const [ciudades, setCiudades] = useState([])
-    const [mensaje, setMensaje] = useState('')
-    const [tipo, setTipo] = useState('success')
-    const [open,setOpen] = useState(false)
-    const [error, setError] = useState('')
-    
-    //cargar ciudad
-    const cargarCiudades = async () => { 
-        const {data} = await supabase
-        .from('ciudades')
-        .select('*')
-        .order('nombre')
-        if(error){
-            console.log(error)
-            return
-        }
-        setCiudades(data)
-    }
-    //guardar ciudad
-    const guardarCiudad = async(e) =>{
-         if(!ciudad ){
-          setError('Complete los campos obligatorios')
-          setMensaje('')
-          return
-        }else {
-        e.preventDefault()
-        const{data,error}=await supabase
-        .from('ciudades')
-        .insert([{nombre: ciudad}])
-        setMensaje('Ciudad Guardada correctamente')
-        setTipo('success')
-        setOpen(true)
-        if(error) console.log(error)
-        setCiudad('')
-        cargarCiudades()
-        setMensaje(error.message)
-        setTipo('error')
-        setOpen(true)
-        }
+export default function AbmCiudades() {
+  const [ciudades, setCiudades] = useState([]);
+  const [nombreCiudad, setNombreCiudad] = useState("");
+
+  const cargarCiudades = async () => {
+    const { data, error } = await supabase
+      .from("ciudades")
+      .select("*")
+      .order("nombre", { ascending: true });
+
+    if (error) {
+      console.error("Error al cargar ciudades:", error);
+      return;
     }
 
-    const eliminarCiudad = async(id) =>{
-        if(!confirm('Eliminar Ciudad?'))return
-        await supabase
-        .from('ciudades')
-        .delete()
-        .eq('id', id)
-        cargarCiudades()
-        setMensaje('Ciudad Eliminada')
-        setTipo('info')
-        setOpen(true)
+    setCiudades(data || []);
+  };
+
+  const guardarCiudad = async () => {
+    if (!nombreCiudad.trim()) return;
+
+    const { error } = await supabase
+      .from("ciudades")
+      .insert([{ nombre: nombreCiudad.trim() }]);
+
+    if (error) {
+      console.error("Error al guardar ciudad:", error);
+      return;
     }
 
-    useEffect(() => {
-        cargarCiudades()
-    },[])
-    return(
-    <Container maxWidth='sm'>
-     <Typography variant="h4" sx={{mt:4, mb:3}}>
-        ABM Ciudades
-     </Typography>
-     <Notificaciones
-        open={open}
-        mensaje={mensaje}
-        tipo={tipo}
-        onClose={()=> setOpen(false)}
-     />
-     <Box 
-      component='form'
-      onSubmit={guardarCiudad}
-      sx={{display:'flex',gap:2,mb:3}}
-     >
-        <TextField
-         label='Ciudad'
-         value={ciudad}
-         onChange={(e) => setCiudad(e.target.value)}
-         fullWidth
-        />
-        <Button disabled={!ciudad}type="submit" variant="contained">Guardar</Button>
-     </Box>
-     <List>
-        {ciudades.map((c) =>(
-            <ListItem
-             key={c.id}
-             secondaryAction={
-                <IconButton
-                 edge='end'
-                 color="error"
-                 onClick={() => eliminarCiudad(c.id)}
-                > <DeleteIcon />  </IconButton>
-             }
-            >
-            <ListItemText primary={c.nombre} />
-            </ListItem>
-        ))}
-     </List>
-    </Container>
-    )
+    setNombreCiudad("");
+    cargarCiudades();
+  };
+
+  const eliminarCiudad = async (id) => {
+    const { error } = await supabase.from("ciudades").delete().eq("id", id);
+
+    if (error) {
+      console.error("Error al eliminar ciudad:", error);
+      return;
+    }
+
+    cargarCiudades();
+  };
+
+  useEffect(() => {
+    cargarCiudades();
+  }, []);
+
+  return (
+    <Box
+      sx={{
+        minHeight: "100vh",
+        bgcolor: "#f5f7fb",
+        py: 4,
+        px: 2,
+      }}
+    >
+      <Paper
+        elevation={3}
+        sx={{
+          maxWidth: 700,
+          mx: "auto",
+          p: 4,
+          borderRadius: 4,
+        }}
+      >
+        <Box
+          sx={{
+            display: "flex",
+            alignItems: "center",
+            gap: 1,
+            mb: 3,
+          }}
+        >
+          <LocationCityIcon color="primary" />
+          <Typography variant="h4" fontWeight={600}>
+            ABM Ciudades
+          </Typography>
+        </Box>
+
+        <Box
+          sx={{
+            display: "flex",
+            gap: 2,
+            mb: 3,
+          }}
+        >
+          <TextField
+            fullWidth
+            label="Ciudad"
+            value={nombreCiudad}
+            onChange={(e) => setNombreCiudad(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") guardarCiudad();
+            }}
+          />
+          <Button
+            variant="contained"
+            onClick={guardarCiudad}
+            sx={{ minWidth: 130, borderRadius: 2 }}
+          >
+            Guardar
+          </Button>
+        </Box>
+
+        <Paper
+          variant="outlined"
+          sx={{
+            borderRadius: 3,
+            overflow: "hidden",
+          }}
+        >
+          <List disablePadding>
+            {ciudades.length === 0 ? (
+              <ListItem>
+                <ListItemText primary="No hay ciudades cargadas." />
+              </ListItem>
+            ) : (
+              ciudades.map((ciudad, index) => (
+                <Box key={ciudad.id}>
+                  <ListItem
+                    secondaryAction={
+                      <IconButton
+                        edge="end"
+                        color="error"
+                        onClick={() => eliminarCiudad(ciudad.id)}
+                      >
+                        <DeleteIcon />
+                      </IconButton>
+                    }
+                  >
+                    <ListItemText primary={ciudad.nombre} />
+                  </ListItem>
+                  {index < ciudades.length - 1 && <Divider />}
+                </Box>
+              ))
+            )}
+          </List>
+        </Paper>
+      </Paper>
+    </Box>
+  );
 }
