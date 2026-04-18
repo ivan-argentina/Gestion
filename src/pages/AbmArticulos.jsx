@@ -36,7 +36,12 @@ export default function AbmArticulos() {
   const [open, setOpen] = useState(false);
   const [editando, setEditando] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
+  const [codigo, setCodigo] = useState("");
+  const [stock, setStock] = useState("");
 
+  const generarCodigo = () => {
+    return "ART-" + Date.now();
+  };
   const manejarImagen = async (e) => {
     const archivo = e.target.files?.[0];
     if (!archivo) return;
@@ -162,7 +167,6 @@ export default function AbmArticulos() {
       mostrarNotificacion("Error al cargar artículos", "error");
       return;
     }
-
     setArticulos(data || []);
   };
 
@@ -182,13 +186,15 @@ export default function AbmArticulos() {
   };
 
   const editarArticulo = (articulo) => {
-    setNombre(articulo.nombre || "");
+    setNombre(articulo.descripcion || "");
     setPrecio(articulo.precio || "");
     setFamiliaId(articulo.idfamilia || "");
     setEditandoId(articulo.id);
     setEditando(true);
-    setFotoActual(articulo.foto_url || "");
-    setPreviewUrl(articulo.foto_url ? obtenerUrlImagen(articulo.foto_url) : "");
+    setFotoActual(articulo.imagen_url || "");
+    setPreviewUrl(
+      articulo.imagen_url ? obtenerUrlImagen(articulo.imagen_url) : "",
+    );
     setArchivoImagen(null);
     setError("");
   };
@@ -211,8 +217,8 @@ export default function AbmArticulos() {
       return;
     }
 
-    if (articulo.foto_url) {
-      await eliminarImagenStorage(articulo.foto_url);
+    if (articulo.imagen_url) {
+      await eliminarImagenStorage(articulo.imagen_url);
     }
 
     mostrarNotificacion("Artículo eliminado", "info");
@@ -238,41 +244,44 @@ export default function AbmArticulos() {
         mostrarNotificacion("Error al subir la imagen", "error");
         return;
       }
-
+      const codigoFinal = codigo || generarCodigo();
       fotoPath = nuevaFoto;
     }
 
     if (editandoId) {
-      //console.log("fotoPath a guardar:", fotoPath);
-      const { error } = await supabase
-        .from("articulos")
-        .update({
-          nombre,
-          precio: Number(precio),
-          idfamilia: familiaId,
-          foto_url: fotoPath || null,
-        })
-        .eq("id", editandoId);
+      if (editandoId) {
+        const { error } = await supabase
+          .from("articulos")
+          .update({
+            descripcion: nombre.trim(),
+            codigo: codigoFinal,
+            precio: Number(precio),
+            idfamilia: familiaId || null,
+            imagen_url: fotoPath || null,
+          })
+          .eq("id", editandoId);
 
-      if (error) {
-        console.log(error);
-        mostrarNotificacion("Error al actualizar artículo", "error");
-        return;
+        if (error) {
+          console.log(error);
+          mostrarNotificacion("Error al actualizar artículo", "error");
+          return;
+        }
+
+        if (archivoImagen && fotoActual && fotoActual !== fotoPath) {
+          await eliminarImagenStorage(fotoActual);
+        }
+
+        mostrarNotificacion("Artículo actualizado correctamente", "success");
       }
-
-      if (archivoImagen && fotoActual && fotoActual !== fotoPath) {
-        await eliminarImagenStorage(fotoActual);
-      }
-
-      mostrarNotificacion("Artículo actualizado correctamente", "success");
     } else {
       console.log("fotoPath a guardar:", fotoPath);
       const { error } = await supabase.from("articulos").insert([
         {
-          nombre,
+          codigo: codigoFinal,
+          descripcion: nombre.trim(),
           precio: Number(precio),
-          idfamilia: familiaId,
-          foto_url: fotoPath || null,
+          idfamilia: familiaId || null,
+          imagen_url: fotoPath || null,
         },
       ]);
 
@@ -293,42 +302,45 @@ export default function AbmArticulos() {
 
   const columnas = [
     {
-      field: "foto_url",
+      field: "foto",
       headerName: "Foto",
       width: 100,
       renderCell: (params) => {
-        // console.log(params.row);
-        //  console.log(params.row.foto_url);
-        const url = obtenerUrlImagen(params.row.foto_url);
-        //  console.log(url);
-        return params.row.foto_url ? (
+        const url = obtenerUrlImagen(params.row?.imagen_url);
+
+        return url ? (
           <img
             src={url}
-            alt="articulo"
+            alt={params.row?.descripcion || "Artículo"}
             style={{
-              width: 50,
-              height: 50,
+              width: 45,
+              height: 45,
               objectFit: "cover",
-              borderRadius: 8,
+              borderRadius: 6,
             }}
           />
         ) : (
-          "Sin foto"
+          <span style={{ color: "#888" }}>Sin foto</span>
         );
       },
     },
-    { field: "nombre", headerName: "Articulo", flex: 1 },
+    {
+      field: "descripcion",
+      headerName: "Artículo",
+      flex: 1,
+      minWidth: 220,
+    },
     {
       field: "precio",
       headerName: "Precio",
-      width: 150,
-      valueGetter: (value, row) => row?.precio || 0,
-      valueFormatter: (value) => new Intl.NumberFormat("es-AR").format(value),
+      width: 120,
+      valueFormatter: (value) =>
+        `$ ${Number(value || 0).toLocaleString("es-AR")}`,
     },
     {
       field: "familia",
       headerName: "Familia",
-      flex: 1,
+      width: 160,
       renderCell: (params) => (
         <Chip
           label={params.row?.familias?.nombre || "Sin familia"}
@@ -340,20 +352,25 @@ export default function AbmArticulos() {
     {
       field: "acciones",
       headerName: "Acciones",
-      width: 150,
+      width: 120,
+      sortable: false,
+      filterable: false,
       renderCell: (params) => (
         <>
           <IconButton
             color="primary"
+            size="small"
             onClick={() => editarArticulo(params.row)}
           >
-            <EditIcon />
+            <EditIcon fontSize="small" />
           </IconButton>
+
           <IconButton
             color="error"
-            onClick={() => eliminarArticulo(params.row.id)}
+            size="small"
+            onClick={() => eliminarArticulo(params.row)}
           >
-            <DeleteIcon />
+            <DeleteIcon fontSize="small" />
           </IconButton>
         </>
       ),
@@ -366,17 +383,8 @@ export default function AbmArticulos() {
   }, []);
 
   useEffect(() => {
-    if (!archivoImagen) return;
-
-    const objectUrl = URL.createObjectURL(archivoImagen);
-    setPreviewUrl(objectUrl);
-
-    return () => URL.revokeObjectURL(objectUrl);
-  }, [archivoImagen]);
-
-  useEffect(() => {
     return () => {
-      if (previewUrl) {
+      if (previewUrl && previewUrl.startsWith("blob:")) {
         URL.revokeObjectURL(previewUrl);
       }
     };
@@ -418,7 +426,20 @@ export default function AbmArticulos() {
 
         <Box component="form" onSubmit={guardarArticulos} sx={{ mb: 2 }}>
           <Grid container spacing={1}>
-            <Grid size={{ xs: 12, sm: 6 }}>
+            {/*Fila 1*/}
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="Codigo"
+                fullWidth
+                size="small"
+                value={codigo}
+                onChange={(e) => setCodigo(e.target.value)}
+                placeholder="Automatico si se deja en vacio"
+                autoFocus
+              />
+            </Grid>
+
+            <Grid size={{ xs: 12, sm: 4 }}>
               <TextField
                 label="Artículo"
                 fullWidth
@@ -428,7 +449,7 @@ export default function AbmArticulos() {
               />
             </Grid>
 
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <TextField
                 select
                 label="Familia"
@@ -444,12 +465,22 @@ export default function AbmArticulos() {
                 ))}
               </TextField>
             </Grid>
-
-            <Grid size={{ xs: 12, sm: 6 }}>
+            {/*Fila 2*/}
+            <Grid size={{ xs: 12, sm: 4 }}>
+              <TextField
+                label="Stock"
+                fullWidth
+                size="small"
+                type="number"
+                value={stock}
+                onChange={(e) => setStock(e.target.value)}
+              />
+            </Grid>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <InputPrecio value={precio} onChange={setPrecio} size="small" />
             </Grid>
 
-            <Grid size={{ xs: 12, sm: 6 }}>
+            <Grid size={{ xs: 12, sm: 4 }}>
               <Button
                 component="label"
                 variant="outlined"
@@ -465,21 +496,25 @@ export default function AbmArticulos() {
                   onChange={manejarImagen}
                 />
               </Button>
-              {previewUrl && (
+              {(previewUrl || fotoActual) && (
                 <Box
                   sx={{
                     mt: 1,
                     display: "flex",
-                    justifyContent: "center",
+                    alignItems: "center",
+                    gap: 2,
+                    p: 1,
+                    border: "1px solid #ddd",
+                    borderRadius: 2,
                   }}
                 >
                   <Box
                     component="img"
-                    src={previewUrl}
+                    src={previewUrl || obtenerUrlImagen(fotoActual)}
                     alt="Preview"
                     sx={{
-                      width: 100,
-                      height: 100,
+                      width: 70,
+                      height: 70,
                       objectFit: "cover",
                       borderRadius: 2,
                       border: "1px solid #ccc",
@@ -512,7 +547,6 @@ export default function AbmArticulos() {
                       borderRadius: 2,
                     }}
                   />
-
                   <Button
                     color="error"
                     size="small"
@@ -528,8 +562,8 @@ export default function AbmArticulos() {
                 </Box>
               </Grid>
             )}
-
-            <Grid size={{ xs: 12, sm: 6 }}>
+            {/*Fila 3*/}
+            <Grid size={{ xs: 12 }}>
               <Button
                 type="submit"
                 variant="contained"
